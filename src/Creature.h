@@ -81,23 +81,41 @@ namespace Creature
 
 	struct Chase
 	{
-		RE::FormID target = 0;
-		float      closest = 0.0f;
-		float      closestAt = 0.0f;
+		RE::FormID   target = 0;
+		float        closest = 0.0f;
+		float        closestAt = 0.0f;
+		RE::NiPoint3 velocity{};
+		float        still = 0.0f;
 
-		void Note(RE::FormID a_target, float a_distance, float a_now)
+		void Note(RE::FormID a_target, const RE::NiPoint3& a_position, float a_distance, float a_now)
 		{
 			if (a_target != target || a_distance < closest - kGain) {
 				target = a_target;
 				closest = a_distance;
 				closestAt = a_now;
 			}
+			const float elapsed = a_now - m_seenAt;
+			if (elapsed > 0.05f && elapsed < 1.0f) {
+				velocity = (a_position - m_seen) * (1.0f / elapsed);
+				still = velocity.Length() < kSlow ? still + elapsed : 0.0f;
+			} else {
+				velocity = {};
+				still = 0.0f;
+			}
+			m_seen = a_position;
+			m_seenAt = a_now;
 		}
 
 		[[nodiscard]] bool Stalled(float a_now, float a_window) const { return a_now - closestAt > a_window; }
+		[[nodiscard]] bool Stuck(float a_now, float a_window) const { return Stalled(a_now, a_window) && still >= kStuckFor; }
 
 	private:
 		static constexpr float kGain = 40.0f;
+		static constexpr float kSlow = 50.0f;
+		static constexpr float kStuckFor = 1.0f;
+
+		RE::NiPoint3 m_seen{};
+		float        m_seenAt = -1e9f;
 	};
 
 	template <class Visit>

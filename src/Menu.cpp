@@ -45,6 +45,7 @@ namespace
 	{
 		auto& data = Config::Get();
 		Group("Flight", "The creature flies to a target it can't reach on foot. Spell casters stay in the air above it.", data.flight.kinds);
+		Group("Wall crawling", "The creature climbs a wall to reach a target above it.", data.crawl.kinds);
 		Group("Burrowing", "The creature digs into soft ground and bursts out next to its target.", data.burrow.kinds);
 	}
 }

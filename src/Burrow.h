@@ -4,4 +4,5 @@ namespace Burrow
 {
 	void Update(float a_delta);
 	void Reset();
+	bool Busy(RE::FormID a_id);
 }

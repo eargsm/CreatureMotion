@@ -10,6 +10,7 @@ namespace
 	{
 		const char* s = "Flight";
 		a_flight.maxFlyers = std::clamp(a_ini.Int(s, "iMaxFlyers", a_flight.maxFlyers), 1, 12);
+		a_flight.always = a_ini.Bool(s, "bAlwaysFly", a_flight.always);
 		a_flight.accel = a_ini.Float(s, "fAccel", a_flight.accel);
 		a_flight.engage = a_ini.Float(s, "fEngage", a_flight.engage);
 		a_flight.minRise = a_ini.Float(s, "fMinRise", a_flight.minRise);
@@ -21,6 +22,8 @@ namespace
 		a_flight.landSpeed = a_ini.Float(s, "fLandSpeed", a_flight.landSpeed);
 		a_flight.ledge = a_ini.Bool(s, "bLedge", a_flight.ledge);
 		a_flight.ledgeDrop = a_ini.Float(s, "fLedgeDrop", a_flight.ledgeDrop);
+		a_flight.rangedChance = std::clamp(a_ini.Float(s, "fRangedChance", a_flight.rangedChance), 0.0f, 1.0f);
+		a_flight.rangedDist = a_ini.Float(s, "fRangedDist", a_flight.rangedDist);
 		a_flight.log = a_ini.Bool(s, "bLog", a_flight.log);
 		for (auto& kind : a_flight.kinds) {
 			kind.enabled = a_ini.Bool(kind.section, "bFlight", kind.enabled);
@@ -60,6 +63,25 @@ namespace
 			kind.chance = std::clamp(a_ini.Float(kind.section, "fBurrowChance", kind.chance), 0.0f, 1.0f);
 		}
 	}
+
+	void ReadCrawl(const Ini::File& a_ini, Config::Crawl& a_crawl)
+	{
+		const char* s = "Crawl";
+		a_crawl.maxCrawlers = std::clamp(a_ini.Int(s, "iMaxCrawlers", a_crawl.maxCrawlers), 1, 12);
+		a_crawl.speed = a_ini.Float(s, "fSpeed", a_crawl.speed);
+		a_crawl.accel = a_ini.Float(s, "fAccel", a_crawl.accel);
+		a_crawl.engage = a_ini.Float(s, "fEngage", a_crawl.engage);
+		a_crawl.minRise = a_ini.Float(s, "fMinRise", a_crawl.minRise);
+		a_crawl.stuckSec = a_ini.Float(s, "fStuckSec", a_crawl.stuckSec);
+		a_crawl.stopDist = a_ini.Float(s, "fStopDist", a_crawl.stopDist);
+		a_crawl.standOff = a_ini.Float(s, "fStandOff", a_crawl.standOff);
+		a_crawl.maxSeconds = a_ini.Float(s, "fMaxSeconds", a_crawl.maxSeconds);
+		a_crawl.cooldown = a_ini.Float(s, "fCooldown", a_crawl.cooldown);
+		a_crawl.log = a_ini.Bool(s, "bLog", a_crawl.log);
+		for (auto& kind : a_crawl.kinds) {
+			kind.enabled = a_ini.Bool(kind.section, "bCrawl", kind.enabled);
+		}
+	}
 }
 
 Config::Data& Config::Get() { return g_data; }
@@ -73,10 +95,13 @@ void Config::Load()
 	Data data;
 	ReadFlight(ini, data.flight);
 	ReadBurrow(ini, data.burrow);
+	ReadCrawl(ini, data.crawl);
 	g_data = data;
 	const auto flying = std::ranges::count_if(g_data.flight.kinds, &Flyer::enabled);
 	const auto digging = std::ranges::count_if(g_data.burrow.kinds, &Burrower::enabled);
-	logs::info("Settings loaded: flight on for {} of {} creatures, burrowing on for {} of {}", flying, kFlyers, digging, kBurrowers);
+	const auto crawling = std::ranges::count_if(g_data.crawl.kinds, &Crawler::enabled);
+	logs::info("Settings loaded: flight on for {} of {} creatures, burrowing on for {} of {}, wall crawling on for {} of {}", flying, kFlyers, digging, kBurrowers, crawling,
+		kCrawlers);
 }
 
 void Config::SaveSwitches()
@@ -87,6 +112,9 @@ void Config::SaveSwitches()
 	}
 	for (const auto& kind : g_data.burrow.kinds) {
 		ini.Set(kind.section, "bBurrow", kind.enabled);
+	}
+	for (const auto& kind : g_data.crawl.kinds) {
+		ini.Set(kind.section, "bCrawl", kind.enabled);
 	}
 	if (!ini.Write()) {
 		logs::error("Could not write {}", kPath.string());

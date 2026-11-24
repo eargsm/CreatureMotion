@@ -4,6 +4,7 @@ namespace Config
 {
 	inline constexpr int kFlyers = 11;
 	inline constexpr int kBurrowers = 5;
+	inline constexpr int kCrawlers = 4;
 
 	struct Flyer
 	{
@@ -17,7 +18,8 @@ namespace Config
 
 	struct Flight
 	{
-		int   maxFlyers = 4;
+		int   maxFlyers = 8;
+		bool  always = true;
 		float accel = 700.0f;
 		float engage = 3000.0f;
 		float minRise = 120.0f;
@@ -29,6 +31,8 @@ namespace Config
 		float landSpeed = 110.0f;
 		bool  ledge = true;
 		float ledgeDrop = 180.0f;
+		float rangedChance = 0.75f;
+		float rangedDist = 450.0f;
 		bool  log = false;
 		Flyer kinds[kFlyers]{
 			{ "Chaurus Hunter", "Hunter", true, 420.0f, 160.0f, 80.0f },
@@ -86,10 +90,39 @@ namespace Config
 		};
 	};
 
+	struct Crawler
+	{
+		const char* name;
+		const char* section;
+		bool        enabled;
+	};
+
+	struct Crawl
+	{
+		int     maxCrawlers = 4;
+		float   speed = 230.0f;
+		float   accel = 600.0f;
+		float   engage = 2500.0f;
+		float   minRise = 120.0f;
+		float   stuckSec = 2.0f;
+		float   stopDist = 120.0f;
+		float   standOff = 30.0f;
+		float   maxSeconds = 25.0f;
+		float   cooldown = 4.0f;
+		bool    log = false;
+		Crawler kinds[kCrawlers]{
+			{ "Chaurus", "Chaurus", true },
+			{ "Frostbite Spider", "FrostbiteSpider", true },
+			{ "Dwarven Spider", "DwarvenSpider", true },
+			{ "Ash Hopper", "AshHopper", true },
+		};
+	};
+
 	struct Data
 	{
 		Flight flight;
 		Burrow burrow;
+		Crawl  crawl;
 	};
 
 	Data& Get();

@@ -1,5 +1,6 @@
 #include "Burrow.h"
 #include "Config.h"
+#include "Crawl.h"
 #include "Creature.h"
 #include "Maths.h"
 #include "Trace.h"
@@ -392,7 +393,7 @@ namespace Burrow
 			const Vec3  d = a_target->GetPosition() - a->GetPosition();
 			const float distance = d.Length(), flat = Flat(d);
 			auto&       memo = g_memo[a->GetFormID()];
-			memo.Note(a_target->GetFormID(), distance, a_now);
+			memo.Note(a_target->GetFormID(), a->GetPosition(), distance, a_now);
 			if (a_now < memo.declined || distance > cfg.engage || flat < cfg.minDist || std::fabs(d.z) > cfg.maxRise) {
 				return nullptr;
 			}
@@ -427,7 +428,7 @@ namespace Burrow
 					return false;
 				}
 				const int kind = KindOf(a);
-				if (kind < 0 || Digging(a->GetFormID())) {
+				if (kind < 0 || Digging(a->GetFormID()) || Crawl::Busy(a->GetFormID())) {
 					return true;
 				}
 				if (const auto it = g_cooldown.find(a->GetFormID()); it != g_cooldown.end() && a_now < it->second) {
@@ -444,6 +445,8 @@ namespace Burrow
 			});
 		}
 	}
+
+	bool Busy(RE::FormID a_id) { return Digging(a_id); }
 
 	void Reset()
 	{

@@ -1,5 +1,6 @@
 #include "Frame.h"
 #include "Burrow.h"
+#include "Crawl.h"
 #include "Flight.h"
 
 namespace
@@ -17,6 +18,7 @@ namespace
 			}
 			Flight::Update(a_delta);
 			Burrow::Update(a_delta);
+			Crawl::Update(a_delta);
 		}
 
 		static inline REL::Relocation<decltype(thunk)> func;

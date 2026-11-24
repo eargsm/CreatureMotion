@@ -44,18 +44,14 @@ namespace Flight
 			Vec3            pos{}, dir{ 0, 1, 0 }, ground{};
 			float           speed = 0, yaw = 0, scale = 1, t = 0, progT = 0, progDist = 1e9f, blocked = 0, logT = 0;
 			float           stop = 0, stopT = 0, hoverEnd = 0, sink = 0;
-			bool            landing = false, hover = false;
-		};
-
-		struct Memo : Creature::Chase
-		{
-			float lastT = -1e9f;
-			Vec3  lastPos{};
+			float           squeeze = 1.0f, legT = 0;
+			RE::MagicItem*  volley = nullptr;
+			bool            landing = false, hover = false, ranged = false, attacking = false;
 		};
 
 		std::vector<Flyer>                    g_flyers;
 		std::unordered_map<RE::FormID, float> g_cooldown;
-		std::unordered_map<RE::FormID, Memo>  g_memo;
+		std::unordered_map<RE::FormID, Creature::Chase> g_memo;
 		Creature::Kinds                       g_kinds;
 		float                                 g_time = 0, g_scanT = 0;
 		int                                   g_logs = 0;
@@ -91,6 +87,43 @@ namespace Flight
 			return std::ranges::any_of(g_flyers, [&](const Flyer& f) { return f.id == a_id; });
 		}
 
+		bool Aimed(const RE::MagicItem* a_magic)
+		{
+			return a_magic && a_magic->IsHostile() && a_magic->GetDelivery() == RE::MagicSystem::Delivery::kAimed;
+		}
+
+		RE::MagicItem* AimedIn(const RE::TESSpellList::SpellData* a_spells)
+		{
+			if (!a_spells || !a_spells->spells) {
+				return nullptr;
+			}
+			const auto all = std::span(a_spells->spells, a_spells->numSpells);
+			const auto found = std::ranges::find_if(all, [](const RE::SpellItem* a_spell) { return Aimed(a_spell); });
+			return found != all.end() ? *found : nullptr;
+		}
+
+		RE::MagicItem* RangedSpell(RE::Actor* a)
+		{
+			for (auto* selected : a->GetActorRuntimeData().selectedSpells) {
+				if (Aimed(selected)) {
+					return selected;
+				}
+			}
+			const auto* base = a->GetActorBase();
+			if (auto* own = base ? AimedIn(base->actorEffects) : nullptr) {
+				return own;
+			}
+			const auto* race = a->GetRace();
+			return race ? AimedIn(race->actorEffects) : nullptr;
+		}
+
+		bool Sees(const Trace::Probe& r, RE::Actor* a, RE::Actor* a_target)
+		{
+			Trace::Hit h;
+			const Vec3 up{ 0, 0, 70.0f };
+			return !r.Cast(a->GetPosition() + up, a_target->GetPosition() + up, h);
+		}
+
 		Vec3 Turn(const Vec3& a_dir, float a_deg, float a_lift)
 		{
 			const float a = a_deg * kPi / 180.0f, c = std::cos(a), s = std::sin(a);
@@ -114,6 +147,12 @@ namespace Flight
 			a->SetHeading(f.yaw);
 			Creature::Hold(a, RE::hkpCharacterStateType::kOnGround);
 			a->SetGraphVariableFloat("Speed", f.speed);
+		}
+
+		bool Casting(RE::Actor* a)
+		{
+			return std::ranges::any_of(a->GetActorRuntimeData().magicCasters,
+				[](const RE::ActorMagicCaster* a_caster) { return a_caster && a_caster->state.get() != RE::MagicCaster::State::kNone; });
 		}
 
 		bool StartLanding(Flyer& f, const Trace::Probe& r, float a_reach, bool a_anySlope)
@@ -232,7 +271,7 @@ namespace Flight
 			const Vec3  hd = dh > 1.0f ? Vec3{ toT.x / dh, toT.y / dh, 0.0f } : Heading(f.yaw);
 			if (f.t >= f.stopT) {
 				f.stopT = f.t + 0.5f;
-				f.stop = StopDistance(r, tpos, hd, kc.stopDist);
+				f.stop = StopDistance(r, tpos, hd, (f.ranged ? (std::max)(kc.stopDist, cfg.rangedDist) : kc.stopDist) * f.squeeze);
 			}
 			const Vec3  aim = tpos - hd * (f.stop * 0.8f) + Vec3{ 0, 0, kc.hover * sc };
 			const Vec3  d = aim - f.pos;
@@ -240,23 +279,26 @@ namespace Flight
 
 			if (!f.hover && (dist < 60.0f || (dh < f.stop && std::fabs(d.z) < 100.0f))) {
 				f.yaw = Yaw(hd);
-				const auto& kind = kKinds[f.kind];
-				if (!kind.caster && StartLanding(f, r, 600.0f, false)) {
+				if (!f.ranged && StartLanding(f, r, 600.0f, false)) {
 					Drive(a, f);
 					return true;
 				}
-				if (!kind.caster && !kind.gentle) {
+				if (!f.ranged && f.squeeze > 0.3f) {
+					f.squeeze *= 0.5f;
+					f.stopT = 0.0f;
+				} else if (!f.ranged && !kKinds[f.kind].gentle) {
 					End(f, a, "arrived (no floor below)", true, true);
 					return false;
-				}
-				f.hover = true;
-				f.hoverEnd = f.t + Random((std::max)(cfg.hoverMin, 0.5f), cfg.hoverMax);
-				if (Log()) {
-					logs::info("FLIGHT {:08X} '{}' hovering for {:.1f}s", f.id, f.name, f.hoverEnd - f.t);
+				} else {
+					f.hover = true;
+					f.hoverEnd = f.t + Random((std::max)(cfg.hoverMin, 0.5f), cfg.hoverMax);
+					if (Log()) {
+						logs::info("FLIGHT {:08X} '{}' hovering for {:.1f}s", f.id, f.name, f.hoverEnd - f.t);
+					}
 				}
 			}
-			if (f.hover) {
-				if (f.t >= f.hoverEnd) {
+			if (f.hover && f.t >= f.hoverEnd) {
+				if (!f.volley) {
 					if (!StartLanding(f, r, 4000.0f, true)) {
 						End(f, a, "hover over (no floor below)", true, true);
 						return false;
@@ -264,8 +306,18 @@ namespace Flight
 					Drive(a, f);
 					return true;
 				}
-			} else if (f.t > cfg.maxSeconds || f.t - f.progT > (std::max)(cfg.stuckSec, 1.0f) + 1.0f || f.blocked > 1.5f) {
-				const char* why = f.t > cfg.maxSeconds ? "timeout" : f.blocked > 1.5f ? "blocked" : "no progress";
+				f.volley = nullptr;
+				f.ranged = false;
+				f.hover = false;
+				f.stopT = 0.0f;
+				f.legT = f.progT = f.t;
+				f.progDist = 1e9f;
+				if (Log()) {
+					logs::info("FLIGHT {:08X} '{}' closing in", f.id, f.name);
+				}
+			}
+			if (!f.hover && (f.t - f.legT > cfg.maxSeconds || f.t - f.progT > (std::max)(cfg.stuckSec, 1.0f) + 1.0f || f.blocked > 1.5f)) {
+				const char* why = f.t - f.legT > cfg.maxSeconds ? "timeout" : f.blocked > 1.5f ? "blocked" : "no progress";
 				if (Log()) {
 					logs::info("FLIGHT {:08X} '{}' {} at dist {:.0f} - landing", f.id, f.name, why, dist);
 				}
@@ -303,7 +355,17 @@ namespace Flight
 			} else if (Flat(f.dir) > 0.3f) {
 				f.yaw = Yaw(f.dir);
 			}
-			Drive(a, f);
+			const bool attacking = f.hover && f.volley && Casting(a);
+			if (attacking) {
+				Creature::Hold(a, RE::hkpCharacterStateType::kOnGround);
+				f.pos = a->GetPosition();
+			} else {
+				Drive(a, f);
+			}
+			if (attacking != f.attacking && Log()) {
+				logs::info("FLIGHT {:08X} '{}' {}", f.id, f.name, attacking ? "attack started - holding loosely" : "attack over");
+			}
+			f.attacking = attacking;
 			if (f.t - f.logT > 2.0f && Log()) {
 				f.logT = f.t;
 				logs::info("FLIGHT {:08X} '{}' t={:.1f} dist={:.0f} speed={:.0f} dir=({:.2f},{:.2f},{:.2f}) blocked={:.2f}", f.id, f.name, f.t, dist, f.speed, f.dir.x, f.dir.y,
@@ -324,18 +386,17 @@ namespace Flight
 			f.yaw = a->data.angle.z;
 			f.dir = Unit(Heading(f.yaw) + Vec3{ 0, 0, 0.3f }, Vec3{ 0, 0, 1 });
 			f.scale = Creature::Scale(a) * kKinds[a_kind].size;
+			const auto& cfg = Config::Get().flight;
+			const Vec3  d = a_target->GetPosition() - f.pos;
+			if (!kKinds[a_kind].caster && d.z >= cfg.minRise && Random(0.0f, 1.0f) < cfg.rangedChance) {
+				f.volley = RangedSpell(a);
+			}
+			f.ranged = kKinds[a_kind].caster || f.volley;
 			if (Log()) {
-				const Vec3 d = a_target->GetPosition() - f.pos;
-				logs::info("FLIGHT start {:08X} '{}' ({}) {} dz={:.0f} dist={:.0f}", f.id, f.name, Config::Get().flight.kinds[a_kind].name, a_why, d.z, d.Length());
+				logs::info("FLIGHT start {:08X} '{}' ({}) {} dz={:.0f} dist={:.0f}{}{}", f.id, f.name, cfg.kinds[a_kind].name, a_why, d.z, d.Length(),
+					f.ranged ? " keeps its distance" : "", f.volley ? std::format(" with '{}'", f.volley->GetName()) : std::string{});
 			}
 			g_flyers.push_back(std::move(f));
-		}
-
-		bool Sees(const Trace::Probe& r, RE::Actor* a, RE::Actor* a_target)
-		{
-			Trace::Hit   h;
-			const Vec3 up{ 0, 0, 70.0f };
-			return !r.Cast(a->GetPosition() + up, a_target->GetPosition() + up, h);
 		}
 
 		bool AtLedge(const Trace::Probe& r, RE::Actor* a, const Vec3& a_move)
@@ -363,11 +424,7 @@ namespace Flight
 			const Vec3  d = a_target->GetPosition() - pos;
 			const float distance = d.Length();
 			auto&       memo = g_memo[a->GetFormID()];
-			memo.Note(a_target->GetFormID(), distance, a_now);
-			const float since = a_now - memo.lastT;
-			const Vec3  move = since > 0.05f && since < 1.0f ? (pos - memo.lastPos) * (1.0f / since) : Vec3{};
-			memo.lastPos = pos;
-			memo.lastT = a_now;
+			memo.Note(a_target->GetFormID(), pos, distance, a_now);
 			if (distance > cfg.engage) {
 				return nullptr;
 			}
@@ -376,12 +433,14 @@ namespace Flight
 				return nullptr;
 			}
 			const char* why = nullptr;
-			if (kKinds[a_kind].gentle && cfg.ledge && AtLedge(r, a, move)) {
+			if (kKinds[a_kind].gentle && cfg.ledge && AtLedge(r, a, memo.velocity)) {
 				why = "ledge";
 			} else if (distance >= kc.stopDist * 1.5f) {
 				const bool above = d.z >= cfg.minRise;
 				const bool stalled = memo.Stalled(a_now, cfg.stuckSec) && Flat(d) > kc.stopDist * 1.5f;
-				if ((above || stalled) && !(kKinds[a_kind].caster && Sees(r, a, a_target))) {
+				if (cfg.always) {
+					why = above ? "target above" : "chase";
+				} else if ((above || stalled) && !(kKinds[a_kind].caster && Sees(r, a, a_target))) {
 					why = above ? "target above" : "no progress";
 				}
 			}
