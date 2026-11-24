@@ -40,7 +40,6 @@ namespace Burrow
 
 		constexpr Kind kKinds[Config::kBurrowers] = {
 			{ "\\mudcrab\\", nullptr, 0.8f, false },
-			{ "\\skeever\\", nullptr, 0.7f, false },
 			{ "\\scrib\\", nullptr, 0.6f, false },
 			{ "\\chaurus\\", nullptr, 1.3f, true },
 			{ nullptr, "ashspawn", 1.4f, false },

@@ -77,9 +77,17 @@ namespace
 		a_crawl.standOff = a_ini.Float(s, "fStandOff", a_crawl.standOff);
 		a_crawl.maxSeconds = a_ini.Float(s, "fMaxSeconds", a_crawl.maxSeconds);
 		a_crawl.cooldown = a_ini.Float(s, "fCooldown", a_crawl.cooldown);
+		a_crawl.proceduralLegs = a_ini.Bool(s, "bProceduralLegs", a_crawl.proceduralLegs);
+		a_crawl.footReach = a_ini.Float(s, "fFootReach", a_crawl.footReach);
 		a_crawl.log = a_ini.Bool(s, "bLog", a_crawl.log);
 		for (auto& kind : a_crawl.kinds) {
 			kind.enabled = a_ini.Bool(kind.section, "bCrawl", kind.enabled);
+			kind.gait.stepLength = std::clamp(a_ini.Float(kind.section, "fStepLength", kind.gait.stepLength), 0.05f, 1.5f);
+			kind.gait.stepHeight = std::clamp(a_ini.Float(kind.section, "fStepHeight", kind.gait.stepHeight), 0.0f, 1.0f);
+			kind.gait.stance = std::clamp(a_ini.Float(kind.section, "fStance", kind.gait.stance), 0.3f, 0.95f);
+			kind.gait.swing = std::clamp(a_ini.Float(kind.section, "fSwing", kind.gait.swing), 0.15f, 0.48f);
+			kind.gait.arch = std::clamp(a_ini.Float(kind.section, "fArch", kind.gait.arch), 0.0f, 1.0f);
+			kind.gait.fan = std::clamp(a_ini.Float(kind.section, "fFan", kind.gait.fan), 0.0f, 1.0f);
 		}
 	}
 }

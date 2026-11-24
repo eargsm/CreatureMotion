@@ -2,6 +2,7 @@
 #include "Burrow.h"
 #include "Config.h"
 #include "Creature.h"
+#include "Legs.h"
 #include "Maths.h"
 #include "Trace.h"
 
@@ -13,6 +14,8 @@ namespace Crawl
 	{
 		constexpr int   kMaxLogs = 400;
 		constexpr float kScanEvery = 0.25f;
+		constexpr float kWalkReach = 4000.0f;
+		constexpr int   kMaxWalkers = 12;
 		constexpr char  kSkeletonRoot[] = "NPC Root [Root]";
 
 		struct Kind
@@ -36,7 +39,7 @@ namespace Crawl
 			std::string                   name;
 			Vec3                          point{}, normal{ 0, 0, 1 }, forward{ 0, 1, 0 };
 			float                         scale = 1, speed = 0, yaw = 0, t = 0, progT = 0, progDist = 1e9f, logT = 0, lost = 0;
-			bool                          climbed = false;
+			bool                          climbed = false, legs = false, tree = false;
 			RE::NiPointer<RE::NiAVObject> body;
 			RE::NiTransform               rest;
 		};
@@ -45,7 +48,8 @@ namespace Crawl
 		std::unordered_map<RE::FormID, float>            g_cooldown;
 		std::unordered_map<RE::FormID, Creature::Chase>  g_memo;
 		Creature::Kinds                                  g_kinds;
-		float                                            g_time = 0, g_scanT = 0;
+		std::unordered_map<RE::FormID, Vec3>             g_ground;
+		float                                            g_time = 0, g_scanT = 0, g_walkLogT = 0;
 		int                                              g_logs = 0, g_skipLogs = 0;
 
 		bool Log()
@@ -139,7 +143,8 @@ namespace Crawl
 			Trace::Hit   hit;
 			const bool   found = r.Cast(over, over + c.forward * (a_step + reach), hit) || r.Cast(next + c.normal * lift, next - c.normal * lift, hit) ||
 			                     r.Cast(next - c.normal * reach + c.forward * lift, next - c.normal * reach - c.forward * lift, hit);
-			if (!found) {
+			c.tree = found && hit.tree;
+			if (!found || c.tree) {
 				return false;
 			}
 			c.point = hit.point;
@@ -177,8 +182,8 @@ namespace Crawl
 				c.progDist = dist;
 				c.progT = c.t;
 			}
-			if (c.t > cfg.maxSeconds || c.t - c.progT > cfg.stuckSec + 2.0f || c.lost > 0.5f) {
-				End(c, a, c.lost > 0.5f ? "lost the surface" : c.t > cfg.maxSeconds ? "timeout" : "no progress", false);
+			if (c.t > cfg.maxSeconds || c.t - c.progT > cfg.stuckSec + 2.0f || c.lost > 0.5f || c.tree) {
+				End(c, a, c.tree ? "tree in the way" : c.lost > 0.5f ? "lost the surface" : c.t > cfg.maxSeconds ? "timeout" : "no progress", false);
 				return false;
 			}
 
@@ -193,10 +198,14 @@ namespace Crawl
 				c.speed *= 0.5f;
 			}
 			Pose(a, c);
+			if (c.legs) {
+				Legs::Walk(a, r, c.point, c.normal, c.forward, dt);
+			}
 			if (c.t - c.logT > 1.0f && Log()) {
 				c.logT = c.t;
-				logs::info("CRAWL {:08X} '{}' t={:.1f} dist={:.0f} speed={:.0f} normal=({:.2f},{:.2f},{:.2f}) forward=({:.2f},{:.2f},{:.2f}) lost={:.2f}", c.id, c.name, c.t, dist,
-					c.speed, c.normal.x, c.normal.y, c.normal.z, c.forward.x, c.forward.y, c.forward.z, c.lost);
+				const auto legs = c.legs ? Legs::Summary(a) : Legs::Report{ -1 };
+				logs::info("CRAWL {:08X} '{}' t={:.1f} dist={:.0f} speed={:.0f} normal=({:.2f},{:.2f},{:.2f}) forward=({:.2f},{:.2f},{:.2f}) lost={:.2f} steps={} footMiss={:.0f} leg={} span={:.0f} limit={:.0f} rise={:.0f}", c.id,
+					c.name, c.t, dist, c.speed, c.normal.x, c.normal.y, c.normal.z, c.forward.x, c.forward.y, c.forward.z, c.lost, legs.steps, legs.miss, legs.leg, legs.span, legs.limit, legs.rise);
 			}
 			return true;
 		}
@@ -222,6 +231,7 @@ namespace Crawl
 			c.forward = Unit(Along(a_target->GetPosition() - c.point, c.normal), Heading(c.yaw));
 			c.body.reset(TiltNode(a));
 			c.rest = c.body->local;
+			c.legs = Config::Get().crawl.proceduralLegs && Legs::Prepare(a, Config::Get().crawl.kinds[a_kind].gait);
 			if (Log()) {
 				const Vec3 d = a_target->GetPosition() - a->GetPosition();
 				logs::info("CRAWL start {:08X} '{}' ({}) {} dz={:.0f} dist={:.0f} tilt node='{}' floor normal=({:.2f},{:.2f},{:.2f})", c.id, c.name,
@@ -247,7 +257,7 @@ namespace Crawl
 			const Trace::Probe r(a);
 			Trace::Hit         floor;
 			const bool         node = TiltNode(a) != nullptr;
-			if (!r || !node || !FindFloor(r, a, floor)) {
+			if (!r || !node || !FindFloor(r, a, floor) || floor.tree) {
 				if (cfg.log && g_skipLogs++ < 40) {
 					logs::info("CRAWL skip {:08X} '{}' {}", a->GetFormID(), a->GetName(), node ? "no floor under it" : "skeleton has no node to tilt");
 				}
@@ -282,6 +292,58 @@ namespace Crawl
 		}
 	}
 
+	namespace
+	{
+		bool Walking(RE::Actor* a)
+		{
+			const auto* controller = a->GetCharController();
+			const auto* state = a->AsActorState();
+			return controller->context.currentState == RE::hkpCharacterStateType::kOnGround && !a->IsAttacking() && !state->actorState2.staggered && !state->IsSwimming();
+		}
+
+		void Ground(float a_delta)
+		{
+			auto* player = RE::PlayerCharacter::GetSingleton();
+			auto* lists = RE::ProcessLists::GetSingleton();
+			if (!Config::Get().crawl.proceduralLegs || !player || !lists) {
+				return;
+			}
+			const Vec3 centre = player->GetPosition();
+			int        walkers = 0;
+			for (auto& handle : lists->highActorHandles) {
+				const auto held = handle.get();
+				auto*      a = held.get();
+				if (!a || a == player || !Creature::Usable(a) || (a->GetPosition() - centre).Length() > kWalkReach || Busy(a->GetFormID()) ||
+					Burrow::Busy(a->GetFormID())) {
+					continue;
+				}
+				const int kind = KindOf(a);
+				if (kind < 0) {
+					continue;
+				}
+				if (walkers >= kMaxWalkers) {
+					break;
+				}
+				++walkers;
+				const Trace::Probe r(a);
+				Trace::Hit         floor;
+				if (!r || !Walking(a) || !FindFloor(r, a, floor) || !Legs::Prepare(a, Config::Get().crawl.kinds[kind].gait)) {
+					Legs::Rest(a, a_delta);
+					continue;
+				}
+				auto& up = g_ground.try_emplace(a->GetFormID(), Vec3{ 0, 0, 1 }).first->second;
+				up = Unit(up + (Unit(floor.normal, up) - up) * (std::min)(1.0f, a_delta * 6.0f), Vec3{ 0, 0, 1 });
+				Legs::Walk(a, r, floor.point, up, Unit(Along(Heading(a->data.angle.z), up), Heading(a->data.angle.z)), a_delta);
+				if (g_time - g_walkLogT > 1.0f && Log()) {
+					g_walkLogT = g_time;
+					const auto legs = Legs::Summary(a);
+					logs::info("WALK {:08X} '{}' pace={:.0f} steps={} footMiss={:.0f} leg={} span={:.0f} limit={:.0f} rise={:.0f}", a->GetFormID(), a->GetName(), legs.pace, legs.steps, legs.miss, legs.leg, legs.span,
+						legs.limit, legs.rise);
+				}
+			}
+		}
+	}
+
 	bool Busy(RE::FormID a_id)
 	{
 		return std::ranges::any_of(g_crawlers, [&](const Crawler& c) { return c.id == a_id; });
@@ -296,9 +358,11 @@ namespace Crawl
 		g_crawlers.clear();
 		g_cooldown.clear();
 		g_memo.clear();
+		g_ground.clear();
 		g_kinds.Clear();
 		g_logs = 0;
 		g_skipLogs = 0;
+		Legs::Reset();
 	}
 
 	void Update(float a_delta)
@@ -309,5 +373,7 @@ namespace Crawl
 			g_scanT = g_time;
 			Scan(g_time);
 		}
+		Ground(a_delta);
+		Legs::Sweep();
 	}
 }

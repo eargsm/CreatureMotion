@@ -3,7 +3,7 @@
 SKSE plugin for Skyrim SE / AE that changes how creatures reach you.
 
 - Flight: Chaurus Hunter, Ice Wraith, Wisp, Wispmother, Netch, Seeker, Flame Atronach, Storm Atronach, Dragon Priest, Soul Cairn Wisp, Vampire Lord.
-- Burrowing: Mudcrab, Skeever, Ash Hopper, Chaurus, Chaurus Reaper, Ash Spawn.
+- Burrowing: Mudcrab, Ash Hopper, Chaurus, Chaurus Reaper, Ash Spawn.
 
 It needs SKSE and Address Library. SKSE Menu Framework is optional and adds an in-game page with a switch for every creature.
 

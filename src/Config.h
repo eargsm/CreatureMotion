@@ -3,7 +3,7 @@
 namespace Config
 {
 	inline constexpr int kFlyers = 11;
-	inline constexpr int kBurrowers = 5;
+	inline constexpr int kBurrowers = 4;
 	inline constexpr int kCrawlers = 4;
 
 	struct Flyer
@@ -83,11 +83,20 @@ namespace Config
 		bool     log = false;
 		Burrower kinds[kBurrowers]{
 			{ "Mudcrab", "Mudcrab", true, 1.0f },
-			{ "Skeever", "Skeever", true, 1.0f },
 			{ "Ash Hopper", "AshHopper", true, 1.0f },
 			{ "Chaurus", "Chaurus", true, 0.25f },
 			{ "Ash Spawn", "AshSpawn", true, 1.0f },
 		};
+	};
+
+	struct Gait
+	{
+		float stepLength;
+		float stepHeight;
+		float stance;
+		float swing;
+		float arch;
+		float fan;
 	};
 
 	struct Crawler
@@ -95,6 +104,7 @@ namespace Config
 		const char* name;
 		const char* section;
 		bool        enabled;
+		Gait        gait;
 	};
 
 	struct Crawl
@@ -109,12 +119,14 @@ namespace Config
 		float   standOff = 30.0f;
 		float   maxSeconds = 25.0f;
 		float   cooldown = 4.0f;
+		bool    proceduralLegs = true;
+		float   footReach = 40.0f;
 		bool    log = false;
 		Crawler kinds[kCrawlers]{
-			{ "Chaurus", "Chaurus", true },
-			{ "Frostbite Spider", "FrostbiteSpider", true },
-			{ "Dwarven Spider", "DwarvenSpider", true },
-			{ "Ash Hopper", "AshHopper", true },
+			{ "Chaurus", "Chaurus", true, { 0.55f, 0.12f, 0.65f, 0.4f, 0.0f, 0.0f } },
+			{ "Frostbite Spider", "FrostbiteSpider", true, { 0.4f, 0.2f, 0.75f, 0.35f, 1.0f, 0.6f } },
+			{ "Dwarven Spider", "DwarvenSpider", true, { 0.4f, 0.15f, 0.7f, 0.35f, 1.0f, 0.6f } },
+			{ "Ash Hopper", "AshHopper", true, { 0.5f, 0.15f, 0.65f, 0.4f, 0.0f, 0.0f } },
 		};
 	};
 

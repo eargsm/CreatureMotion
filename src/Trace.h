@@ -7,6 +7,7 @@ namespace Trace
 		RE::NiPoint3 point;
 		RE::NiPoint3 normal{ 0, 0, 1 };
 		bool         terrain = false;
+		bool         tree = false;
 	};
 
 	class Probe
@@ -45,6 +46,7 @@ namespace Trace
 					a_hit.point = point;
 					a_hit.normal = normal;
 					a_hit.terrain = Terrain(*body);
+					a_hit.tree = Tree(*body);
 					return true;
 				}
 				start = point + span * (kSkip / length);
@@ -76,6 +78,16 @@ namespace Trace
 		{
 			const auto layer = a_body.GetCollisionLayer();
 			return layer == RE::COL_LAYER::kTerrain || layer == RE::COL_LAYER::kGround;
+		}
+
+		static bool Tree(const RE::hkpCollidable& a_body)
+		{
+			if (a_body.GetCollisionLayer() == RE::COL_LAYER::kTrees) {
+				return true;
+			}
+			const auto* ref = RE::TESHavokUtilities::FindCollidableRef(a_body);
+			const auto* base = ref ? ref->GetBaseObject() : nullptr;
+			return base && base->Is(RE::FormType::Tree);
 		}
 
 		static bool World(const RE::hkpCollidable& a_body)
