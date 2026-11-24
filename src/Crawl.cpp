@@ -124,6 +124,7 @@ namespace Crawl
 				Creature::Hold(a, standing ? RE::hkpCharacterStateType::kOnGround : RE::hkpCharacterStateType::kInAir);
 			}
 			g_cooldown[c.id] = g_time + (a_good ? 1.5f : Config::Get().crawl.cooldown);
+			Creature::rests.Start(c.id, Creature::kRestAfterMove);
 			if (Log()) {
 				logs::info("CRAWL end {:08X} '{}' {} after {:.1f}s normal=({:.2f},{:.2f},{:.2f}) pos=({:.0f},{:.0f},{:.0f})", c.id, c.name, a_reason, c.t, c.normal.x, c.normal.y,
 					c.normal.z, c.point.x, c.point.y, c.point.z);

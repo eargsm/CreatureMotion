@@ -1,6 +1,7 @@
 #include "Burrow.h"
 #include "Config.h"
 #include "Crawl.h"
+#include "Creature.h"
 #include "Flight.h"
 #include "Frame.h"
 #include "Menu.h"
@@ -26,6 +27,7 @@ SKSE_PLUGIN_LOAD(const SKSE::LoadInterface* a_skse)
 			Flight::Reset();
 			Burrow::Reset();
 			Crawl::Reset();
+			Creature::rests.Clear();
 			break;
 		default:
 			break;

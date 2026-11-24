@@ -6,6 +6,7 @@ namespace Trace
 	{
 		RE::NiPoint3 point;
 		RE::NiPoint3 normal{ 0, 0, 1 };
+		bool         terrain = false;
 	};
 
 	class Probe
@@ -43,6 +44,7 @@ namespace Trace
 				if (World(*body)) {
 					a_hit.point = point;
 					a_hit.normal = normal;
+					a_hit.terrain = Terrain(*body);
 					return true;
 				}
 				start = point + span * (kSkip / length);
@@ -68,6 +70,12 @@ namespace Trace
 			a_fraction = pick.rayOutput.hitFraction;
 			a_normal = { pick.rayOutput.normal.quad.m128_f32[0], pick.rayOutput.normal.quad.m128_f32[1], pick.rayOutput.normal.quad.m128_f32[2] };
 			return pick.rayOutput.rootCollidable;
+		}
+
+		static bool Terrain(const RE::hkpCollidable& a_body)
+		{
+			const auto layer = a_body.GetCollisionLayer();
+			return layer == RE::COL_LAYER::kTerrain || layer == RE::COL_LAYER::kGround;
 		}
 
 		static bool World(const RE::hkpCollidable& a_body)

@@ -13,6 +13,7 @@ namespace Burrow
 	{
 		constexpr int        kMaxLogs = 400;
 		constexpr float      kScanEvery = 0.25f;
+		constexpr float      kDeepFloor = 4000.0f;
 		constexpr RE::FormID kDigInSound = 0x000E670F;
 		constexpr RE::FormID kDigOutSound = 0x000E670E;
 		constexpr RE::FormID kRockExplosion = 0x000E7722;
@@ -61,7 +62,7 @@ namespace Burrow
 			Phase           phase = Phase::kDig;
 			Vec3            surface{}, exit{};
 			float           depth = 0, sunk = 0, yaw = 0, t = 0, phaseT = 0, exitT = 0, trailT = 0, angle = 0;
-			bool            hidden = false;
+			bool            hidden = false, indoors = false;
 			RE::MATERIAL_ID ground = RE::MATERIAL_ID::kNone;
 		};
 
@@ -122,6 +123,12 @@ namespace Burrow
 			const auto* controller = a->GetCharController();
 			const auto  material = controller ? controller->surfaceMaterial : RE::MATERIAL_ID::kNone;
 			return material == RE::MATERIAL_ID::kNone ? GroundAt(a->GetPosition(), material) : material;
+		}
+
+		bool Grounded(RE::Actor* a)
+		{
+			const auto* controller = a->GetCharController();
+			return controller && controller->context.currentState == RE::hkpCharacterStateType::kOnGround;
 		}
 
 		bool Soft(RE::MATERIAL_ID a_material)
@@ -217,19 +224,30 @@ namespace Burrow
 				}
 			}
 			g_cooldown[d.id] = g_time + Config::Get().burrow.cooldown;
+			Creature::rests.Start(d.id, Creature::kRestAfterMove);
 			if (Log()) {
 				logs::info("BURROW end {:08X} '{}' {} after {:.1f}s pos=({:.0f},{:.0f},{:.0f})", d.id, d.name, a_reason, d.t, d.surface.x, d.surface.y, d.surface.z);
 			}
 		}
 
+		bool Floor(const Trace::Probe& r, const Vec3& a_at, float a_up, float a_down, Trace::Hit& a_out)
+		{
+			return r.Cast(a_at + Vec3{ 0, 0, a_up }, a_at - Vec3{ 0, 0, a_down }, a_out) && a_out.normal.z > 0.4f;
+		}
+
 		bool Floor(const Trace::Probe& r, const Vec3& a_at, float a_up, float a_down, Vec3& a_out)
 		{
 			Trace::Hit h;
-			if (r.Cast(a_at + Vec3{ 0, 0, a_up }, a_at - Vec3{ 0, 0, a_down }, h) && h.normal.z > 0.4f) {
-				a_out = h.point;
-				return true;
+			if (!Floor(r, a_at, a_up, a_down, h)) {
+				return false;
 			}
-			return false;
+			a_out = h.point;
+			return true;
+		}
+
+		bool Diggable(const Digger& d, const Trace::Hit& a_floor)
+		{
+			return d.indoors || (a_floor.terrain && Soft(GroundAt(a_floor.point, d.ground)));
 		}
 
 		void PickExit(Digger& d, const Trace::Probe& r, RE::Actor* a_target)
@@ -242,7 +260,7 @@ namespace Burrow
 					return;
 				}
 			}
-			d.exit = tpos;
+			Floor(r, tpos, 80.0f, kDeepFloor, d.exit);
 		}
 
 		void Burst(Digger& d, RE::Actor* a, RE::Actor* a_target)
@@ -277,15 +295,17 @@ namespace Burrow
 			const Vec3  to = d.exit - d.surface;
 			const float left = Flat(to);
 			const float move = cfg.speed * dt;
+			bool        rock = false;
 			if (left > 1.0f) {
 				const float f = (std::min)(move / left, 1.0f);
-				d.surface.x += to.x * f;
-				d.surface.y += to.y * f;
-				d.yaw = Yaw(to);
-			}
-			Vec3 ground;
-			if (Floor(r, d.surface, 150.0f, 350.0f, ground)) {
-				d.surface.z = ground.z;
+				const Vec3  next{ d.surface.x + to.x * f, d.surface.y + to.y * f, d.surface.z };
+				Trace::Hit  floor;
+				const bool  found = Floor(r, next, 150.0f, 350.0f, floor);
+				rock = found && !Diggable(d, floor);
+				if (!rock) {
+					d.surface = found ? Vec3{ next.x, next.y, floor.point.z } : next;
+					d.yaw = Yaw(to);
+				}
 			}
 			Drive(a, d);
 			if (d.t - d.trailT > 0.18f) {
@@ -293,8 +313,8 @@ namespace Burrow
 				const auto& dust = DustFor(GroundAt(d.surface, d.ground));
 				Effect(a, dust.trail, d.surface, dust.trailScale * kKinds[d.kind].size * cfg.burstScale, 1.5f);
 			}
-			const bool arrived = left <= move + 5.0f;
-			if (a_target && !arrived && d.phaseT <= cfg.maxSeconds) {
+			const bool arrived = !rock && left <= move + 5.0f;
+			if (a_target && !arrived && !rock && d.phaseT <= cfg.maxSeconds) {
 				return;
 			}
 			if (a_target) {
@@ -308,7 +328,8 @@ namespace Burrow
 			d.phase = Phase::kRise;
 			d.phaseT = 0.0f;
 			if (Log()) {
-				logs::info("BURROW {:08X} '{}' surfacing at ({:.0f},{:.0f},{:.0f}) after {:.1f}s underground", d.id, d.name, d.surface.x, d.surface.y, d.surface.z, d.t);
+				logs::info("BURROW {:08X} '{}' surfacing at ({:.0f},{:.0f},{:.0f}) after {:.1f}s underground{}", d.id, d.name, d.surface.x, d.surface.y, d.surface.z, d.t,
+					rock ? " - rock in the way" : "");
 			}
 		}
 
@@ -373,15 +394,17 @@ namespace Burrow
 			d.kind = a_kind;
 			d.name = a->GetName() ? a->GetName() : cfg.kinds[a_kind].name;
 			d.surface = a->GetPosition();
-			d.exit = a_target->GetPosition();
+			d.exit = d.surface;
 			d.yaw = a->data.angle.z;
 			d.angle = Random(-1.2f, 1.2f);
 			d.depth = cfg.depth * kKinds[a_kind].size * Creature::Scale(a);
 			d.ground = GroundUnder(a);
+			const auto* cell = a->GetParentCell();
+			d.indoors = cell && cell->IsInteriorCell();
 			Effect(a, DustFor(d.ground).burst, d.surface, 0.25f * kKinds[a_kind].size * cfg.burstScale, 3.0f);
 			Sound(kDigInSound, d.surface);
 			if (Log()) {
-				logs::info("BURROW start {:08X} '{}' ({}) {} dist={:.0f} ground={}", d.id, d.name, cfg.kinds[a_kind].name, a_why, (d.exit - d.surface).Length(),
+				logs::info("BURROW start {:08X} '{}' ({}) {} dist={:.0f} ground={}", d.id, d.name, cfg.kinds[a_kind].name, a_why, (a_target->GetPosition() - d.surface).Length(),
 					RE::MaterialIDToString(d.ground));
 			}
 			g_diggers.push_back(std::move(d));
@@ -394,14 +417,19 @@ namespace Burrow
 			const float distance = d.Length(), flat = Flat(d);
 			auto&       memo = g_memo[a->GetFormID()];
 			memo.Note(a_target->GetFormID(), a->GetPosition(), distance, a_now);
-			if (a_now < memo.declined || distance > cfg.engage || flat < cfg.minDist || std::fabs(d.z) > cfg.maxRise) {
+			if (a_now < memo.declined || distance > cfg.engage || flat < cfg.minDist || std::fabs(d.z) > cfg.maxRise || !Grounded(a) || !Grounded(a_target)) {
 				return nullptr;
 			}
-			const auto here = GroundUnder(a), there = GroundUnder(a_target);
-			if (!Soft(here) || !Soft(there)) {
+			const auto  here = GroundUnder(a), there = GroundUnder(a_target);
+			const auto* cell = a->GetParentCell();
+			const bool  indoors = cell && cell->IsInteriorCell();
+			Trace::Hit  footing;
+			const bool  onRock = !indoors && Floor(Trace::Probe(a), a->GetPosition(), 50.0f, 100.0f, footing) && !footing.terrain;
+			if (!Soft(here) || onRock || (indoors && !Soft(there))) {
 				memo.declined = a_now + 3.0f;
 				if (cfg.log && g_groundLogs++ < 40) {
-					logs::info("BURROW skip {:08X} '{}' hard ground: here={} target={}", a->GetFormID(), a->GetName(), RE::MaterialIDToString(here), RE::MaterialIDToString(there));
+					logs::info("BURROW skip {:08X} '{}' hard ground: here={}{} target={}", a->GetFormID(), a->GetName(), RE::MaterialIDToString(here), onRock ? " (standing on a rock)" : "",
+						RE::MaterialIDToString(there));
 				}
 				return nullptr;
 			}

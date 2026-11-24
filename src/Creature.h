@@ -89,12 +89,12 @@ namespace Creature
 
 		void Note(RE::FormID a_target, const RE::NiPoint3& a_position, float a_distance, float a_now)
 		{
-			if (a_target != target || a_distance < closest - kGain) {
+			const float elapsed = a_now - m_seenAt;
+			if (a_target != target || a_distance < closest - kGain || elapsed >= 1.0f) {
 				target = a_target;
 				closest = a_distance;
 				closestAt = a_now;
 			}
-			const float elapsed = a_now - m_seenAt;
 			if (elapsed > 0.05f && elapsed < 1.0f) {
 				velocity = (a_position - m_seen) * (1.0f / elapsed);
 				still = velocity.Length() < kSlow ? still + elapsed : 0.0f;
@@ -118,6 +118,28 @@ namespace Creature
 		float        m_seenAt = -1e9f;
 	};
 
+	class Rests
+	{
+	public:
+		void Tick(float a_delta) { m_now += a_delta; }
+		void Start(RE::FormID a_id, float a_seconds) { m_until[a_id] = m_now + a_seconds; }
+		void Clear() { m_until.clear(); }
+
+		[[nodiscard]] bool Resting(RE::FormID a_id) const
+		{
+			const auto it = m_until.find(a_id);
+			return it != m_until.end() && m_now < it->second;
+		}
+
+	private:
+		std::unordered_map<RE::FormID, float> m_until;
+		float                                 m_now = 0.0f;
+	};
+
+	inline Rests rests;
+
+	inline constexpr float kRestAfterMove = 3.0f;
+
 	template <class Visit>
 	void EachFighter(float a_reach, Visit&& a_visit)
 	{
@@ -130,7 +152,7 @@ namespace Creature
 		for (auto& handle : lists->highActorHandles) {
 			const auto held = handle.get();
 			auto*      actor = held.get();
-			if (!actor || actor == player || !actor->IsInCombat() || !Usable(actor) || (actor->GetPosition() - centre).Length() > a_reach) {
+			if (!actor || actor == player || !actor->IsInCombat() || !Usable(actor) || rests.Resting(actor->GetFormID()) || (actor->GetPosition() - centre).Length() > a_reach) {
 				continue;
 			}
 			const auto targetHeld = actor->GetActorRuntimeData().currentCombatTarget.get();

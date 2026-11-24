@@ -1,6 +1,7 @@
 #include "Frame.h"
 #include "Burrow.h"
 #include "Crawl.h"
+#include "Creature.h"
 #include "Flight.h"
 
 namespace
@@ -16,6 +17,7 @@ namespace
 			if (a_delta <= 0.0f || a_delta > kLongestStep || (ui && ui->GameIsPaused())) {
 				return;
 			}
+			Creature::rests.Tick(a_delta);
 			Flight::Update(a_delta);
 			Burrow::Update(a_delta);
 			Crawl::Update(a_delta);
