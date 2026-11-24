@@ -423,13 +423,17 @@ namespace Burrow
 			const auto  here = GroundUnder(a), there = GroundUnder(a_target);
 			const auto* cell = a->GetParentCell();
 			const bool  indoors = cell && cell->IsInteriorCell();
-			Trace::Hit  footing;
-			const bool  onRock = !indoors && Floor(Trace::Probe(a), a->GetPosition(), 50.0f, 100.0f, footing) && !footing.terrain;
-			if (!Soft(here) || onRock || (indoors && !Soft(there))) {
+			const Trace::Probe r(a);
+			const auto         onRock = [&](RE::Actor* a_who) {
+				Trace::Hit footing;
+				return !indoors && Floor(r, a_who->GetPosition(), 50.0f, 100.0f, footing) && !footing.terrain;
+			};
+			const bool hereRock = onRock(a), thereRock = onRock(a_target);
+			if (!Soft(here) || !Soft(there) || hereRock || thereRock) {
 				memo.declined = a_now + 3.0f;
 				if (cfg.log && g_groundLogs++ < 40) {
-					logs::info("BURROW skip {:08X} '{}' hard ground: here={}{} target={}", a->GetFormID(), a->GetName(), RE::MaterialIDToString(here), onRock ? " (standing on a rock)" : "",
-						RE::MaterialIDToString(there));
+					logs::info("BURROW skip {:08X} '{}' hard ground: here={}{} target={}{}", a->GetFormID(), a->GetName(), RE::MaterialIDToString(here), hereRock ? " (on a rock)" : "",
+						RE::MaterialIDToString(there), thereRock ? " (on a rock)" : "");
 				}
 				return nullptr;
 			}
