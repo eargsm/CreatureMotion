@@ -94,6 +94,8 @@ namespace
 
 Config::Data& Config::Get() { return g_data; }
 
+const std::filesystem::path& Config::Path() { return kPath; }
+
 void Config::Load()
 {
 	const Ini::File ini{ kPath };

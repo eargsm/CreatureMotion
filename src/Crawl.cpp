@@ -1,4 +1,5 @@
 #include "Crawl.h"
+#include "Roster.h"
 #include "Burrow.h"
 #include "Config.h"
 #include "Creature.h"
@@ -16,7 +17,6 @@ namespace Crawl
 		constexpr float kScanEvery = 0.25f;
 		constexpr float kWalkReach = 4000.0f;
 		constexpr int   kMaxWalkers = 12;
-		constexpr char  kSkeletonRoot[] = "NPC Root [Root]";
 
 		struct Kind
 		{
@@ -61,21 +61,12 @@ namespace Crawl
 			return true;
 		}
 
-		int Classify(RE::Actor* a)
-		{
-			const auto path = Creature::SkeletonPath(a);
-			for (int k = 0; k < Config::kCrawlers; ++k) {
-				if (path.find(kKinds[k].skeleton) != std::string::npos) {
-					return k;
-				}
-			}
-			return -1;
-		}
+		int Classify(RE::Actor* a) { return Sort(Creature::TrailOf(a)); }
 
 		int KindOf(RE::Actor* a)
 		{
 			const int kind = g_kinds.Of(a, Classify);
-			return kind >= 0 && Config::Get().crawl.kinds[kind].enabled ? kind : -1;
+			return kind >= 0 && Config::Get().crawl.kinds[kind].enabled && Roster::Allowed(Roster::kCrawl, a) ? kind : -1;
 		}
 
 		Vec3 Along(const Vec3& a_v, const Vec3& a_normal) { return a_v - a_normal * a_v.Dot(a_normal); }
@@ -83,7 +74,7 @@ namespace Crawl
 		RE::NiAVObject* TiltNode(RE::Actor* a)
 		{
 			auto* root = a->Get3D(false);
-			auto* bones = root ? root->GetObjectByName(RE::BSFixedString(kSkeletonRoot)) : nullptr;
+			auto* bones = root ? root->GetObjectByName(RE::BSFixedString(Creature::kSkeletonRoot)) : nullptr;
 			auto* above = bones ? bones->parent : nullptr;
 			return above && above != root ? above : nullptr;
 		}
@@ -204,8 +195,8 @@ namespace Crawl
 			if (c.t - c.logT > 1.0f && Log()) {
 				c.logT = c.t;
 				const auto legs = c.legs ? Legs::Summary(a) : Legs::Report{ -1 };
-				logs::info("CRAWL {:08X} '{}' t={:.1f} dist={:.0f} speed={:.0f} normal=({:.2f},{:.2f},{:.2f}) forward=({:.2f},{:.2f},{:.2f}) lost={:.2f} steps={} footMiss={:.0f} leg={} span={:.0f} limit={:.0f} rise={:.0f}", c.id,
-					c.name, c.t, dist, c.speed, c.normal.x, c.normal.y, c.normal.z, c.forward.x, c.forward.y, c.forward.z, c.lost, legs.steps, legs.miss, legs.leg, legs.span, legs.limit, legs.rise);
+				logs::info("CRAWL {:08X} '{}' t={:.1f} dist={:.0f} speed={:.0f} normal=({:.2f},{:.2f},{:.2f}) forward=({:.2f},{:.2f},{:.2f}) lost={:.2f} steps={} footMiss={:.0f}", c.id,
+					c.name, c.t, dist, c.speed, c.normal.x, c.normal.y, c.normal.z, c.forward.x, c.forward.y, c.forward.z, c.lost, legs.steps, legs.miss);
 			}
 			return true;
 		}
@@ -313,12 +304,11 @@ namespace Crawl
 			for (auto& handle : lists->highActorHandles) {
 				const auto held = handle.get();
 				auto*      a = held.get();
-				if (!a || a == player || !Creature::Usable(a) || (a->GetPosition() - centre).Length() > kWalkReach || Busy(a->GetFormID()) ||
-					Burrow::Busy(a->GetFormID())) {
+				if (!a || a == player || (a->GetPosition() - centre).SqrLength() > kWalkReach * kWalkReach || !Creature::Usable(a)) {
 					continue;
 				}
 				const int kind = KindOf(a);
-				if (kind < 0) {
+				if (kind < 0 || Busy(a->GetFormID()) || Burrow::Busy(a->GetFormID())) {
 					continue;
 				}
 				if (walkers >= kMaxWalkers) {
@@ -337,8 +327,7 @@ namespace Crawl
 				if (g_time - g_walkLogT > 1.0f && Log()) {
 					g_walkLogT = g_time;
 					const auto legs = Legs::Summary(a);
-					logs::info("WALK {:08X} '{}' pace={:.0f} steps={} footMiss={:.0f} leg={} span={:.0f} limit={:.0f} rise={:.0f}", a->GetFormID(), a->GetName(), legs.pace, legs.steps, legs.miss, legs.leg, legs.span,
-						legs.limit, legs.rise);
+					logs::info("WALK {:08X} '{}' pace={:.0f} steps={} footMiss={:.0f}", a->GetFormID(), a->GetName(), legs.pace, legs.steps, legs.miss);
 				}
 			}
 		}
@@ -348,6 +337,8 @@ namespace Crawl
 	{
 		return std::ranges::any_of(g_crawlers, [&](const Crawler& c) { return c.id == a_id; });
 	}
+
+	int Sort(const Creature::Trail& a_trail) { return Creature::Sort(kKinds, a_trail); }
 
 	void Reset()
 	{

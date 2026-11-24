@@ -1,4 +1,5 @@
 #include "Flight.h"
+#include "Roster.h"
 #include "Config.h"
 #include "Creature.h"
 #include "Maths.h"
@@ -65,21 +66,12 @@ namespace Flight
 			return true;
 		}
 
-		int Classify(RE::Actor* a)
-		{
-			const auto path = Creature::SkeletonPath(a);
-			for (int k = 0; k < Config::kFlyers; ++k) {
-				if (path.find(kKinds[k].skeleton) != std::string::npos) {
-					return k;
-				}
-			}
-			return -1;
-		}
+		int Classify(RE::Actor* a) { return Sort(Creature::TrailOf(a)); }
 
 		int KindOf(RE::Actor* a)
 		{
 			const int kind = g_kinds.Of(a, Classify);
-			return kind >= 0 && Config::Get().flight.kinds[kind].enabled ? kind : -1;
+			return kind >= 0 && Config::Get().flight.kinds[kind].enabled && Roster::Allowed(Roster::kFlight, a) ? kind : -1;
 		}
 
 		bool Flying(RE::FormID a_id)
@@ -475,6 +467,8 @@ namespace Flight
 			});
 		}
 	}
+
+	int Sort(const Creature::Trail& a_trail) { return Creature::Sort(kKinds, a_trail); }
 
 	void Reset()
 	{

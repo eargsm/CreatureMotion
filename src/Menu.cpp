@@ -1,5 +1,6 @@
 #include "Menu.h"
 #include "Config.h"
+#include "Roster.h"
 
 #include "SKSEMenuFramework.h"
 
@@ -8,7 +9,7 @@ namespace
 	constexpr int kColumns = 3;
 
 	template <class Kind, std::size_t N>
-	void Group(const char* a_title, const char* a_help, Kind (&a_kinds)[N])
+	void Group(const char* a_title, const char* a_help, Kind (&a_kinds)[N], Roster::Move a_move)
 	{
 		if (!ImGuiMCP::CollapsingHeader(a_title, ImGuiMCP::ImGuiTreeNodeFlags_DefaultOpen)) {
 			return;
@@ -33,6 +34,26 @@ namespace
 			}
 			ImGuiMCP::EndTable();
 		}
+		auto& found = Roster::Of(a_move);
+		bool  picked = false;
+		if (!found.empty() && ImGuiMCP::TreeNode("found", "Creatures found in your load order (%d)", static_cast<int>(found.size()))) {
+			int kind = -1;
+			for (auto& entry : found) {
+				if (entry.kind != kind) {
+					kind = entry.kind;
+					ImGuiMCP::SeparatorText(a_kinds[kind].name);
+				}
+				ImGuiMCP::BeginDisabled(!a_kinds[kind].enabled);
+				ImGuiMCP::PushID(entry.key.c_str());
+				picked |= ImGuiMCP::Checkbox(entry.label.c_str(), &entry.on);
+				ImGuiMCP::PopID();
+				ImGuiMCP::EndDisabled();
+			}
+			ImGuiMCP::TreePop();
+		}
+		if (picked) {
+			Roster::Save();
+		}
 		ImGuiMCP::Unindent();
 		ImGuiMCP::PopID();
 		ImGuiMCP::Spacing();
@@ -44,9 +65,9 @@ namespace
 	void __stdcall Render()
 	{
 		auto& data = Config::Get();
-		Group("Flight", "The creature flies to a target it can't reach on foot. Spell casters stay in the air above it.", data.flight.kinds);
-		Group("Wall crawling", "The creature climbs a wall to reach a target above it.", data.crawl.kinds);
-		Group("Burrowing", "The creature digs into soft ground and bursts out next to its target.", data.burrow.kinds);
+		Group("Flight", "The creature flies to a target it can't reach on foot. Spell casters stay in the air above it.", data.flight.kinds, Roster::kFlight);
+		Group("Wall crawling", "The creature climbs a wall to reach a target above it.", data.crawl.kinds, Roster::kCrawl);
+		Group("Burrowing", "The creature digs into soft ground and bursts out next to its target.", data.burrow.kinds, Roster::kBurrow);
 	}
 }
 

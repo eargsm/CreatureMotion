@@ -2,6 +2,8 @@
 
 namespace Creature
 {
+	inline constexpr char kSkeletonRoot[] = "NPC Root [Root]";
+
 	inline bool Usable(RE::Actor* a_actor)
 	{
 		return a_actor && a_actor->Is3DLoaded() && !a_actor->IsDead() && !a_actor->IsInRagdollState() && !a_actor->IsInKillMove() && a_actor->GetCharController();
@@ -31,23 +33,43 @@ namespace Creature
 		return a_text;
 	}
 
-	inline std::string SkeletonPath(RE::Actor* a_actor)
+	struct Trail
+	{
+		std::string skeleton;
+		std::string behaviour;
+		std::string race;
+	};
+
+	inline Trail TrailOf(const RE::TESRace* a_race, RE::SEX a_sex)
+	{
+		const auto  sex = std::to_underlying(a_sex);
+		const char* skeleton = a_race->skeletonModels[sex].GetModel();
+		const char* behaviour = a_race->behaviorGraphs[sex].GetModel();
+		const char* id = a_race->GetFormEditorID();
+		return { Lower(skeleton ? skeleton : ""), Lower(behaviour ? behaviour : ""), Lower(id ? id : "") };
+	}
+
+	inline Trail TrailOf(RE::Actor* a_actor)
 	{
 		const auto* race = a_actor->GetRace();
 		if (!race) {
 			return {};
 		}
 		const auto* base = a_actor->GetActorBase();
-		const auto  sex = base && base->GetSex() == RE::SEX::kFemale ? RE::SEX::kFemale : RE::SEX::kMale;
-		const char* path = race->skeletonModels[std::to_underlying(sex)].GetModel();
-		return Lower(path ? path : "");
+		return TrailOf(race, base && base->GetSex() == RE::SEX::kFemale ? RE::SEX::kFemale : RE::SEX::kMale);
 	}
 
-	inline std::string RaceID(RE::Actor* a_actor)
+	template <class Kind, std::size_t N>
+	int Sort(const Kind (&a_kinds)[N], const Trail& a_trail)
 	{
-		const auto* race = a_actor->GetRace();
-		const char* id = race ? race->GetFormEditorID() : nullptr;
-		return Lower(id ? id : "");
+		for (const auto* text : { &a_trail.skeleton, &a_trail.behaviour }) {
+			for (std::size_t k = 0; k < N; ++k) {
+				if (a_kinds[k].skeleton && text->find(a_kinds[k].skeleton) != std::string::npos) {
+					return static_cast<int>(k);
+				}
+			}
+		}
+		return -1;
 	}
 
 	class Kinds

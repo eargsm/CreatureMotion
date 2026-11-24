@@ -1,4 +1,5 @@
 #include "Legs.h"
+#include "Creature.h"
 #include "Config.h"
 #include "Maths.h"
 
@@ -8,7 +9,6 @@ namespace Legs
 
 	namespace
 	{
-		constexpr char        kSkeletonRoot[] = "NPC Root [Root]";
 		constexpr char        kHelperName[] = "CreatureMotionLeg";
 		constexpr std::size_t kFewestBones = 3;
 		constexpr float       kTwinTolerance = 0.15f;
@@ -33,7 +33,7 @@ namespace Legs
 			Vec3                      home{}, socket{}, side{};
 			Vec3                      planted{}, from{}, to{}, goal{}, last{}, drift{};
 			bool                      stepping = false, paired = false;
-			float                     span = 0.0f, limit = 0.0f, rise = 0.0f;
+			float                     limit = 0.0f;
 		};
 
 		struct Rig
@@ -42,8 +42,7 @@ namespace Legs
 			std::vector<Leg> legs;
 			Config::Gait     gait{};
 			Vec3             up{ 0, 0, 1 };
-			float            blend = 0.0f, miss = 0.0f, phase = 0.0f, stride = 0.0f, pace = 0.0f, span = 0.0f, limit = 0.0f, rise = 0.0f;
-			int              worst = -1;
+			float            blend = 0.0f, miss = 0.0f, phase = 0.0f, stride = 0.0f, pace = 0.0f;
 			int              steps = 0;
 			bool             fresh = true, touched = false;
 		};
@@ -237,7 +236,7 @@ namespace Legs
 			rig = {};
 			rig.root = root;
 			rig.gait = a_gait;
-			auto* found = root->GetObjectByName(RE::BSFixedString(kSkeletonRoot));
+			auto* found = root->GetObjectByName(RE::BSFixedString(Creature::kSkeletonRoot));
 			auto* skeleton = found ? found->AsNode() : nullptr;
 			if (!skeleton || root->GetObjectByName(RE::BSFixedString(kHelperName))) {
 				return &rig;
@@ -284,8 +283,8 @@ namespace Legs
 		{
 			const auto* above = a_leg.hip->parent;
 			const Pose  start{ above->world.rotate, above->world.translate, above->world.scale };
-			std::vector<Pose> poses;
-			poses.reserve(a_leg.chain.size());
+			static std::vector<Pose> poses;
+			poses.clear();
 			for (const auto* bone : a_leg.chain) {
 				poses.push_back(Below(poses.empty() ? start : poses.back(), *bone));
 			}
@@ -317,9 +316,7 @@ namespace Legs
 			Pivot(*a_leg.hip, aboveTurn.Transpose() * hipTurn * aboveTurn, a_leg.chain.front()->local.translate);
 			const auto& thighTurn = poses[a_leg.bend - 1].turn;
 			Pivot(*a_leg.knee, thighTurn.Transpose() * bendTurn * thighTurn, a_leg.chain[a_leg.bend]->local.translate);
-			a_leg.span = span;
 			a_leg.limit = a + b;
-			a_leg.rise = (hip - target).Dot(a_up);
 			return std::fabs(span - want);
 		}
 
@@ -432,13 +429,7 @@ namespace Legs
 			const float miss = Reach(leg, leg.goal, a_normal, rig->blend, rig->gait.arch);
 			leg.reach += (leg.limit / frame.scale - leg.reach) * (std::min)(1.0f, a_delta * kSteady);
 			Place(leg, rig->gait.stance);
-			if (miss > rig->miss) {
-				rig->miss = miss;
-				rig->span = leg.span;
-				rig->limit = leg.limit;
-				rig->rise = leg.rise;
-				rig->worst = static_cast<int>(&leg - rig->legs.data());
-			}
+			rig->miss = (std::max)(rig->miss, miss);
 		}
 		rig->fresh = false;
 	}
@@ -462,13 +453,6 @@ namespace Legs
 		}
 	}
 
-	void Relax(RE::Actor* a_actor)
-	{
-		if (auto* rig = Known(a_actor)) {
-			Release(*rig);
-		}
-	}
-
 	void Sweep()
 	{
 		for (auto& [id, rig] : g_rigs) {
@@ -485,7 +469,7 @@ namespace Legs
 		if (it == g_rigs.end()) {
 			return {};
 		}
-		const Report report{ it->second.steps, it->second.miss, it->second.pace, it->second.worst, it->second.span, it->second.limit, it->second.rise };
+		const Report report{ it->second.steps, it->second.miss, it->second.pace };
 		it->second.steps = 0;
 		it->second.miss = 0.0f;
 		return report;

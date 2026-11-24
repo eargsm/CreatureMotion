@@ -137,7 +137,8 @@ namespace Config
 		Crawl  crawl;
 	};
 
-	Data& Get();
+	Data&                        Get();
+	const std::filesystem::path& Path();
 	void  Load();
 	void  SaveSwitches();
 }
