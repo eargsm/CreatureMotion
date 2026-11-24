@@ -73,6 +73,14 @@ namespace Roster
 			std::ranges::sort(entries, [](const Entry& a_one, const Entry& a_other) { return std::tie(a_one.kind, a_one.label) < std::tie(a_other.kind, a_other.label); });
 		}
 		Refresh();
+		const auto& cfg = Config::Get();
+		if (cfg.flight.log || cfg.burrow.log || cfg.crawl.log) {
+			for (int move = 0; move < kMoves; ++move) {
+				for (const auto& entry : g_entries[move]) {
+					logs::info("FOUND {} kind {} {} {}", kSections[move], entry.kind, entry.on ? "on " : "off", entry.label);
+				}
+			}
+		}
 		logs::info("Creatures found in the load order: {} fly, {} burrow, {} crawl", g_entries[kFlight].size(), g_entries[kBurrow].size(), g_entries[kCrawl].size());
 	}
 

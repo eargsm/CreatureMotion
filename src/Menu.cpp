@@ -37,6 +37,15 @@ namespace
 		auto& found = Roster::Of(a_move);
 		bool  picked = false;
 		if (!found.empty() && ImGuiMCP::TreeNode("found", "Creatures found in your load order (%d)", static_cast<int>(found.size()))) {
+			const bool foundOn = ImGuiMCP::SmallButton("All found on");
+			ImGuiMCP::SameLine();
+			const bool foundOff = ImGuiMCP::SmallButton("All found off");
+			if (foundOn || foundOff) {
+				for (auto& entry : found) {
+					entry.on = foundOn;
+				}
+				picked = true;
+			}
 			int kind = -1;
 			for (auto& entry : found) {
 				if (entry.kind != kind) {
